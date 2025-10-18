@@ -6,6 +6,7 @@ from scipy.interpolate import griddata
 import plotly.graph_objs as go
 import numpy as np
 import nltk
+import noise
 
 # Scarica tokenizer per frasi (solo la prima volta)
 nltk.download('punkt', quiet=True)
@@ -90,18 +91,24 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
             )[0, 0]
             st.write(f"**Testo {i+1} ↔ Testo {j+1}:** {sim:.3f}")
 
-    # 6️⃣ Terrains semantici in stile Manga - tutti nella stessa scena 3D
-    st.subheader("Terrain Semantici")
-    #st.caption("Cel-shading con colori pastello • Navigazione sincronizzata tra tutti i terrain")
-    
-    # Palette manga con cel-shading - adattate per montagne e laghi
-    manga_palettes = [
-        [[0, '#b0c4de'], [0.3, '#e6d5f5'], [0.5, '#b8e6d5'], [0.75, '#ffd4e5'], [1, '#ffb3c1']],
-        [[0, '#87ceeb'], [0.3, '#d5e6f5'], [0.5, '#d5f5e6'], [0.75, '#f5e6d5'], [1, '#f4a460']],
-        [[0, '#40e0d0'], [0.3, '#f5d5e6'], [0.5, '#e6f5d5'], [0.75, '#d5e6f5'], [1, '#ff7f7f']],
-        [[0, '#6495ed'], [0.3, '#e6e6f5'], [0.5, '#f5e6e6'], [0.75, '#e6f5e6'], [1, '#dda0dd']],
-        [[0, '#7fffd4'], [0.3, '#f5e6f5'], [0.5, '#e6f5f5'], [0.75, '#f5f5e6'], [1, '#f0e68c']],
-        [[0, '#add8e6'], [0.3, '#ffe6f0'], [0.5, '#e6fff0'], [0.75, '#f0e6ff'], [1, '#ffb6c1']]
+    # 6️⃣ Terrains semantici organici
+    st.subheader("🏞️ Paesaggi Semantici")
+    st.caption("Ogni paesaggio è generato dalla 'geografia' semantica delle frasi di un testo.")
+
+    # Palette di colori naturali per i paesaggi
+    landscape_palettes = [
+        # Foresta & Montagna
+        [[0, '#2d5a2d'], [0.2, '#5a8b5a'], [0.4, '#8fa88f'], [0.6, '#a9a9a9'], [0.8, '#d3d3d3'], [1, '#ffffff']],
+        # Deserto & Canyon
+        [[0, '#8b4513'], [0.2, '#cd853f'], [0.5, '#f4a460'], [0.7, '#deb887'], [1, '#fffaf0']],
+        # Mare & Scogliere
+        [[0, '#000080'], [0.15, '#4682b4'], [0.4, '#add8e6'], [0.6, '#f0e68c'], [0.8, '#d2b48c'], [1, '#a0522d']],
+        # Ghiacciaio & Tundra
+        [[0, '#f5f5f5'], [0.2, '#dcdcdc'], [0.5, '#b0c4de'], [0.7, '#6a5acd'], [1, '#483d8b']],
+        # Colline & Campi
+        [[0, '#556b2f'], [0.25, '#6b8e23'], [0.5, '#9acd32'], [0.75, '#eee8aa'], [1, '#fafad2']],
+        # Vulcano & Cenere
+        [[0, '#1c1c1c'], [0.2, '#696969'], [0.4, '#a9a9a9'], [0.6, '#ff4500'], [0.8, '#ff8c00'], [1, '#ffd700']]
     ]
     
     # Prepara tutte le superfici nella stessa figura
@@ -188,7 +195,7 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         grid_z = grid_z_norm + noise + wave
 
         # Normalizza le coordinate per la griglia
-        scale = 20  # Scala per ogni terrain
+        scale = 25  # Scala per ogni terrain
         grid_x_norm = (grid_x - np.min(grid_x)) / (np.max(grid_x) - np.min(grid_x) + 1e-8) * scale
         grid_y_norm = (grid_y - np.min(grid_y)) / (np.max(grid_y) - np.min(grid_y) + 1e-8) * scale
         
@@ -196,88 +203,74 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         grid_x_final = grid_x_norm + offset_x
         grid_y_final = grid_y_norm + offset_y
 
-        # Superficie con effetto cel-shading manga
+        # Superficie del paesaggio
         trace_surface = go.Surface(
             x=grid_x_final,
             y=grid_y_final,
             z=grid_z,
-            colorscale=manga_palettes[i % len(manga_palettes)],
+            colorscale=landscape_palettes[i % len(landscape_palettes)],
             lighting=dict(
-                ambient=0.7,
-                diffuse=0.8,
-                fresnel=0.1,
-                specular=0.2,
-                roughness=0.5
+                ambient=0.6,
+                diffuse=1.0,
+                fresnel=0.2,
+                specular=0.4,
+                roughness=0.8
             ),
-            opacity=0.95,
+            opacity=1.0,
             showscale=False,
-            contours=dict(
-                z=dict(
-                    show=True,
-                    usecolormap=True,
-                    highlightcolor="#c5b8d4",
-                    project=dict(z=True),
-                    width=2
-                )
-            ),
             hoverinfo='skip',
-            name=f"Testo {i+1}",
+            name=f"Paesaggio {i+1}",
             showlegend=True
         )
-        
         all_traces.append(trace_surface)
         
-        # Aggiungi etichetta di testo 3D per identificare il terrain
+        # Etichetta di testo 3D per identificare il paesaggio
         trace_text = go.Scatter3d(
-            x=[offset_x + scale/2],
-            y=[offset_y + scale + 3],
-            z=[np.max(grid_z) + 0.5],
+            x=[offset_x + scale / 2],
+            y=[offset_y + scale + 4],
+            z=[np.max(grid_z) + 1.5],
             mode='text',
-            text=[f'🌸 Testo {i+1}'],
-            textfont=dict(size=14, color='#8b5a8e', family='Arial'),
+            text=[f'Paesaggio {i+1}'],
+            textfont=dict(size=12, color='#2F4F4F', family='Georgia'),
             showlegend=False,
             hoverinfo='skip'
         )
         all_traces.append(trace_text)
     
-    if len(valid_texts) == 0:
-        st.warning("Nessun terrain valido da visualizzare.")
-    else:
-        # Crea figura unica con tutti i terrains
+    if len(valid_texts) > 0:
+        # Crea figura unica con tutti i paesaggi
         fig = go.Figure(data=all_traces)
         
-        # Calcola il centro della griglia
-        max_row = (len(valid_texts) - 1) // 2
-        center_x = spacing / 2
-        center_y = (max_row * spacing) / 2
-        
-        # Layout unico con una sola scena 3D
+        # Layout della scena 3D
         fig.update_layout(
             title=dict(
-                text="🌸 Confronto Terrain Semantici - Navigazione Sincronizzata",
-                font=dict(size=24, family='Arial', color='#8b5a8e')
+                text="🌐 Confronto tra Paesaggi Semantici",
+                font=dict(size=26, family='Georgia', color='#2F4F4F'),
+                x=0.5
             ),
             scene=dict(
-                xaxis=dict(visible=False, showgrid=False, zeroline=False),
-                yaxis=dict(visible=False, showgrid=False, zeroline=False),
-                zaxis=dict(visible=False, showgrid=False, zeroline=False),
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False),
                 camera=dict(
                     up=dict(x=0, y=0, z=1),
-                    center=dict(x=0, y=0, z=0),
-                    eye=dict(x=1.5, y=1.5, z=1.3)
+                    center=dict(x=0, y=0, z=-0.1),
+                    eye=dict(x=1.4, y=1.4, z=1.4)
                 ),
-                aspectratio=dict(x=1, y=1, z=0.4),
-                bgcolor='rgba(0,0,0,0)'
+                aspectratio=dict(x=1.2, y=1.2, z=0.4),
+                bgcolor='#e9f5f8'
             ),
-            paper_bgcolor='#fef5f8',
-            height=700,
-            margin=dict(l=10, r=10, t=80, b=10),
+            paper_bgcolor='#ffffff',
+            height=750,
+            margin=dict(l=20, r=20, t=100, b=20),
             legend=dict(
-                x=0.02,
-                y=0.98,
-                bgcolor='rgba(255,255,255,0.8)',
-                bordercolor='#c5b8d4',
-                borderwidth=2
+                title="Legenda",
+                x=0.05,
+                y=0.95,
+                bgcolor='rgba(255, 255, 255, 0.7)',
+                bordercolor='#a9a9a9',
+                borderwidth=1,
+                font=dict(family="Georgia", size=12, color="#2F4F4F")
             )
         )
         
