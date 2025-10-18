@@ -115,6 +115,15 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
     all_traces = []
     valid_texts = []
     spacing = 50  # Spaziatura tra i terrains
+
+    # Calcola i range globali per la scala
+    if len(embeddings_3d) > 0:
+        global_x_range = np.max(embeddings_3d[:, 0]) - np.min(embeddings_3d[:, 0])
+        global_y_range = np.max(embeddings_3d[:, 1]) - np.min(embeddings_3d[:, 1])
+        global_z_range = np.max(embeddings_3d[:, 2]) - np.min(embeddings_3d[:, 2])
+        max_global_range = max(global_x_range, global_y_range, global_z_range)
+    else:
+        max_global_range = 1 # Evita divisione per zero
     
     for i, text in enumerate(texts):
         mask = np.array(text_ids) == i
@@ -194,14 +203,23 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         
         grid_z = grid_z_norm + noise + wave
 
-        # Normalizza le coordinate per la griglia
-        scale = 25  # Scala per ogni terrain
-        grid_x_norm = (grid_x - np.min(grid_x)) / (np.max(grid_x) - np.min(grid_x) + 1e-8) * scale
-        grid_y_norm = (grid_y - np.min(grid_y)) / (np.max(grid_y) - np.min(grid_y) + 1e-8) * scale
-        
+        # Calcola la scala dinamica basata sul range globale
+        local_max_range = max(np.max(emb3d[:, 0]) - np.min(emb3d[:, 0]), np.max(emb3d[:, 1]) - np.min(emb3d[:, 1]))
+        dynamic_scale = (local_max_range / max_global_range) * 25
+        dynamic_scale = max(dynamic_scale, 5) # Assicura una dimensione minima visibile
+
+        # Normalizza le coordinate con la scala dinamica
+        grid_x_norm = (grid_x - np.min(grid_x)) / (np.max(grid_x) - np.min(grid_x) + 1e-8) * dynamic_scale
+        grid_y_norm = (grid_y - np.min(grid_y)) / (np.max(grid_y) - np.min(grid_y) + 1e-8) * dynamic_scale
+
         # Applica offset per posizionare in griglia
         grid_x_final = grid_x_norm + offset_x
         grid_y_final = grid_y_norm + offset_y
+
+        # Scala l'altezza (Z) in modo proporzionale
+        z_range_local = np.max(emb3d[:, 2]) - np.min(emb3d[:, 2])
+        z_scale_factor = (z_range_local / max_global_range) * 10
+        grid_z = grid_z * z_scale_factor
 
         # Superficie del paesaggio
         trace_surface = go.Surface(
@@ -226,9 +244,9 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         
         # Etichetta di testo 3D per identificare il paesaggio
         trace_text = go.Scatter3d(
-            x=[offset_x + scale / 2],
-            y=[offset_y + scale + 4],
-            z=[np.max(grid_z) + 1.5],
+            x=[offset_x + dynamic_scale / 2],
+            y=[offset_y + dynamic_scale + 4],
+            z=[np.max(grid_z) + 1.5 if grid_z.size > 0 else 0],
             mode='text',
             text=[f'Paesaggio {i+1}'],
             textfont=dict(size=12, color='#2F4F4F', family='Georgia'),
