@@ -1,27 +1,35 @@
-from playwright.sync_api import sync_playwright
+import asyncio
+from playwright.async_api import async_playwright, expect
 
-def run(playwright):
-    browser = playwright.chromium.launch(headless=True)
-    page = browser.new_page()
-    page.goto("http://localhost:8501")
+async def main():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
-    # Wait for the app to load
-    page.wait_for_selector("text=Quanti testi vuoi confrontare?")
+        # Go to the Streamlit app
+        await page.goto("http://localhost:8501")
 
-    # Fill in the text areas
-    page.fill("textarea[aria-label='Testo 1']", "This is the first text. It is about nature and mountains.")
-    page.fill("textarea[aria-label='Testo 2']", "This is the second text. It is about rivers and lakes.")
+        # Wait for the app to load
+        await expect(page.get_by_text("Confronto Semantico 3D tra Testi")).to_be_visible(timeout=180000)
 
-    # Click the analyze button
-    page.click("text=Analizza testi")
+        # Input text into the text areas
+        await page.get_by_label("Testo 1").fill("Questo è il primo testo. Parla di intelligenza artificiale.")
+        await page.get_by_label("Testo 2").fill("Questo è il secondo testo. Discute di apprendimento automatico.")
 
-    # Wait for the terrain to be generated
-    page.wait_for_selector("text=Paesaggi Semantici", timeout=120000)
+        # Click the analyze button
+        button = page.get_by_text("Analizza testi")
+        await button.click()
 
-    # Take a screenshot
-    page.screenshot(path="jules-scratch/verification/verification.png")
+        # Wait for a long time for the analysis to complete
+        await page.wait_for_timeout(180000)
 
-    browser.close()
+        # Wait for the 3D plot to appear
+        await expect(page.get_by_text("Confronto tra Paesaggi Semantici")).to_be_visible()
 
-with sync_playwright() as playwright:
-    run(playwright)
+        # Take a screenshot
+        await page.screenshot(path="jules-scratch/verification/verification.png")
+
+        await browser.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())

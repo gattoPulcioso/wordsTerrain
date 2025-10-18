@@ -114,16 +114,6 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
     # Prepara tutte le superfici nella stessa figura
     all_traces = []
     valid_texts = []
-    spacing = 50  # Spaziatura tra i terrains
-
-    # Calcola i range globali per la scala
-    if len(embeddings_3d) > 0:
-        global_x_range = np.max(embeddings_3d[:, 0]) - np.min(embeddings_3d[:, 0])
-        global_y_range = np.max(embeddings_3d[:, 1]) - np.min(embeddings_3d[:, 1])
-        global_z_range = np.max(embeddings_3d[:, 2]) - np.min(embeddings_3d[:, 2])
-        max_global_range = max(global_x_range, global_y_range, global_z_range)
-    else:
-        max_global_range = 1 # Evita divisione per zero
     
     for i, text in enumerate(texts):
         mask = np.array(text_ids) == i
@@ -135,25 +125,19 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         
         valid_texts.append(i + 1)
         
-        # Calcola offset per posizionare i terrains in griglia
-        row = i // 2
-        col = i % 2
-        offset_x = col * spacing
-        offset_y = row * spacing
-
         # Calcola il range e crea una base quadrata
         x_range = np.max(emb3d[:, 0]) - np.min(emb3d[:, 0])
         y_range = np.max(emb3d[:, 1]) - np.min(emb3d[:, 1])
         
         # Usa il range maggiore per entrambe le dimensioni (base quadrata)
-        max_range = max(x_range, y_range)
-        margin = max_range * 0.25
+        max_range = max(x_range, y_range) if max(x_range, y_range) > 0 else 1
+        margin = max_range * 0.3 # Aumenta il margine per una griglia più ampia
         
         # Centro dei dati
         x_center = (np.max(emb3d[:, 0]) + np.min(emb3d[:, 0])) / 2
         y_center = (np.max(emb3d[:, 1]) + np.min(emb3d[:, 1])) / 2
         
-        # Crea griglia quadrata centrata
+        # Crea griglia quadrata centrata sulle coordinate reali
         grid_x, grid_y = np.mgrid[
             x_center - max_range/2 - margin : x_center + max_range/2 + margin : 80j,
             y_center - max_range/2 - margin : y_center + max_range/2 + margin : 80j
@@ -167,64 +151,55 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
             method='cubic'
         )
         
-        grid_z = np.nan_to_num(grid_z, nan=np.nanmean(grid_z))
+        # Usa la media dei valori Z esistenti per riempire i NaN
+        z_mean_interp = np.nanmean(grid_z)
+        grid_z = np.nan_to_num(grid_z, nan=z_mean_interp)
         
-        # Normalizza per avere range consistente
-        z_mean = np.mean(grid_z)
-        z_std = np.std(grid_z)
-        if z_std > 0:
-            grid_z_norm = (grid_z - z_mean) / z_std
-        else:
-            grid_z_norm = grid_z - z_mean
+        # --- Effetti artistici basati su valori non normalizzati ---
+        z_mean = np.mean(grid_z) # Calcola la media Z come riferimento
         
-        # Crea montagne (picchi positivi) e laghi (depressioni negative)
+        # Crea montagne e laghi basandosi sulla deviazione dalla media
         np.random.seed(42 + i)
         
-        # Per zone positive: effetto montagna (pendenze più ripide)
-        mountain_mask = grid_z_norm > 0
+        # Effetto montagna per valori sopra la media
+        mountain_mask = grid_z > z_mean
         if np.any(mountain_mask):
-            grid_z_norm[mountain_mask] = np.power(grid_z_norm[mountain_mask], 0.7) * 1.2
+            # Rende i picchi più alti e ripidi in modo non lineare
+            grid_z[mountain_mask] = z_mean + np.power(grid_z[mountain_mask] - z_mean, 1.1)
         
-        # Per zone negative: effetto lago (depressioni più dolci e piatte)
-        lake_mask = grid_z_norm < -0.3
+        # Effetto lago per valori sotto la media
+        lake_mask = grid_z < z_mean
         if np.any(lake_mask):
-            grid_z_norm[lake_mask] = -np.power(np.abs(grid_z_norm[lake_mask]), 1.3) * 0.8
+            # Rende le depressioni più dolci
+            grid_z[lake_mask] = z_mean - np.power(z_mean - grid_z[lake_mask], 0.9)
+
+        # Aggiungi rumore Perlin per un aspetto più naturale
+        scale = 10.0
+        octaves = 4
+        persistence = 0.6
+        lacunarity = 2.0
         
-        # Rumore diverso per montagne e laghi
-        noise_mountain = np.random.normal(0, 0.08, grid_z.shape)
-        noise_lake = np.random.normal(0, 0.02, grid_z.shape)
-        noise = np.where(mountain_mask, noise_mountain, noise_lake)
+        perlin_noise = np.zeros(grid_x.shape)
+        for r in range(grid_x.shape[0]):
+            for c in range(grid_x.shape[1]):
+                perlin_noise[r][c] = noise.pnoise2(grid_x[r][c] / scale,
+                                                   grid_y[r][c] / scale,
+                                                   octaves=octaves,
+                                                   persistence=persistence,
+                                                   lacunarity=lacunarity,
+                                                   repeatx=1024,
+                                                   repeaty=1024,
+                                                   base=42 + i)
         
-        # Ondulazioni più pronunciate sulle montagne
-        x_norm_wave = (grid_x - np.min(grid_x)) / (np.max(grid_x) - np.min(grid_x) + 1e-8) * 10
-        y_norm_wave = (grid_y - np.min(grid_y)) / (np.max(grid_y) - np.min(grid_y) + 1e-8) * 10
-        wave = np.sin(x_norm_wave * 0.5) * np.cos(y_norm_wave * 0.5) * 0.15
-        wave = np.where(mountain_mask, wave, wave * 0.3)
-        
-        grid_z = grid_z_norm + noise + wave
+        # Modula l'intensità del rumore in base all'altezza
+        z_range_local = np.max(grid_z) - np.min(grid_z) if np.max(grid_z) > np.min(grid_z) else 1
+        noise_intensity = perlin_noise * z_range_local * 0.15 # Rumore proporzionale all'altezza locale
+        grid_z += noise_intensity
 
-        # Calcola la scala dinamica basata sul range globale
-        local_max_range = max(np.max(emb3d[:, 0]) - np.min(emb3d[:, 0]), np.max(emb3d[:, 1]) - np.min(emb3d[:, 1]))
-        dynamic_scale = (local_max_range / max_global_range) * 25
-        dynamic_scale = max(dynamic_scale, 5) # Assicura una dimensione minima visibile
-
-        # Normalizza le coordinate con la scala dinamica
-        grid_x_norm = (grid_x - np.min(grid_x)) / (np.max(grid_x) - np.min(grid_x) + 1e-8) * dynamic_scale
-        grid_y_norm = (grid_y - np.min(grid_y)) / (np.max(grid_y) - np.min(grid_y) + 1e-8) * dynamic_scale
-
-        # Applica offset per posizionare in griglia
-        grid_x_final = grid_x_norm + offset_x
-        grid_y_final = grid_y_norm + offset_y
-
-        # Scala l'altezza (Z) in modo proporzionale
-        z_range_local = np.max(emb3d[:, 2]) - np.min(emb3d[:, 2])
-        z_scale_factor = (z_range_local / max_global_range) * 10
-        grid_z = grid_z * z_scale_factor
-
-        # Superficie del paesaggio
+        # Superficie del paesaggio con coordinate reali
         trace_surface = go.Surface(
-            x=grid_x_final,
-            y=grid_y_final,
+            x=grid_x,
+            y=grid_y,
             z=grid_z,
             colorscale=landscape_palettes[i % len(landscape_palettes)],
             lighting=dict(
@@ -243,10 +218,14 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
         all_traces.append(trace_surface)
         
         # Etichetta di testo 3D per identificare il paesaggio
+        label_x = x_center
+        label_y = y_center + max_range/2 + margin * 0.5 # Posiziona sopra il terrain
+        label_z = np.max(grid_z) + z_range_local * 0.1 # Poco sopra il picco massimo
+
         trace_text = go.Scatter3d(
-            x=[offset_x + dynamic_scale / 2],
-            y=[offset_y + dynamic_scale + 4],
-            z=[np.max(grid_z) + 1.5 if grid_z.size > 0 else 0],
+            x=[label_x],
+            y=[label_y],
+            z=[label_z],
             mode='text',
             text=[f'Paesaggio {i+1}'],
             textfont=dict(size=12, color='#2F4F4F', family='Georgia'),
@@ -254,10 +233,31 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
             hoverinfo='skip'
         )
         all_traces.append(trace_text)
+
+    # Aggiungi i punti originali delle frasi alla visualizzazione dei paesaggi
+    scatter_points = []
+    for i, text in enumerate(texts):
+        mask = np.array(text_ids) == i
+        scatter_points.append(go.Scatter3d(
+            x=embeddings_3d[mask, 0],
+            y=embeddings_3d[mask, 1],
+            z=embeddings_3d[mask, 2],
+            mode='markers',
+            marker=dict(
+                size=3.5,
+                color=colors[i % len(colors)],
+                opacity=0.8,
+                symbol='circle'
+            ),
+            text=[f"Testo {i+1}: {s}" for s in np.array(sentences)[mask]],
+            hoverinfo='text',
+            name=f'Frasi Testo {i+1}',
+            showlegend=False
+        ))
     
     if len(valid_texts) > 0:
-        # Crea figura unica con tutti i paesaggi
-        fig = go.Figure(data=all_traces)
+        # Crea figura unica con tutti i paesaggi e i punti
+        fig = go.Figure(data=all_traces + scatter_points)
         
         # Layout della scena 3D
         fig.update_layout(
@@ -267,19 +267,22 @@ if len(texts) >= 2 and st.button("🔎 Analizza testi"):
                 x=0.5
             ),
             scene=dict(
-                xaxis=dict(visible=False),
-                yaxis=dict(visible=False),
-                zaxis=dict(visible=False),
+                xaxis_title='PC1',
+                yaxis_title='PC2',
+                zaxis_title='PC3',
+                xaxis=dict(showbackground=False, zeroline=False),
+                yaxis=dict(showbackground=False, zeroline=False),
+                zaxis=dict(showbackground=False, zeroline=False),
                 camera=dict(
                     up=dict(x=0, y=0, z=1),
-                    center=dict(x=0, y=0, z=-0.1),
-                    eye=dict(x=1.4, y=1.4, z=1.4)
+                    center=dict(x=0, y=0, z=0),
+                    eye=dict(x=1.5, y=1.5, z=1.5)
                 ),
-                aspectratio=dict(x=1.2, y=1.2, z=0.4),
+                aspectratio=dict(x=1, y=1, z=0.5), # Aspetto più bilanciato
                 bgcolor='#e9f5f8'
             ),
             paper_bgcolor='#ffffff',
-            height=750,
+            height=800, # Aumenta altezza per migliore visuale
             margin=dict(l=20, r=20, t=100, b=20),
             legend=dict(
                 title="Legenda",
